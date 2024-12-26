@@ -1,0 +1,85 @@
+# -*- coding: UTF-8 -*-
+import os
+import numpy as np
+import arcpy
+from arcpy import env
+from arcpy.sa import *
+
+# 设置工作目录
+input_dir = "F:\\clim1019\\wc2.1_cruts4.06_5m_2010-2019"
+output_dir = "F:\\clim1019\\avg12year10_19"
+env.workspace = output_dir  # 设置arcpy工作空间
+
+# 定义加载和排序栅格文件的函数
+def load_and_order_rasters(pattern, months):
+    文件 = [os.path.join(input_dir, f) for f in os.listdir(input_dir) if pattern in f]
+    files.sort()  # 按文件名排序
+    return [files[i] for i in months]  # 只返回指定月份的文件
+
+# 处理并保存每个月的统计结果
+def process_and_save(files, func, output_prefix):
+    monthly_summary = summarize_by_month(files, func)
+    for i, data in enumerate(monthly_summary):
+        # 计算月份，前6个月为1-6，后6个月为7-12
+        month = i + 1
+        if output_prefix.endswith("jul_to_dec"):  # 下半年
+            month += 6
+        output_file = os.path.join(output_dir, "{}_2010_19_{}.tif".format(output_prefix, month))
+        try:
+            arcpy.CopyRaster_management(data, output_file)
+            print("Saved: {}".format(output_file))
+        except Exception as e:
+            print("Failed to save {}: {}. Skipping this month.".format(output_file, e))
+        del data  # 清除内存
+
+# 按月汇总栅格数据的函数
+def summarize_by_month(files, func):
+    n_years = len(files) // 6  # 每次处理6个月的数据
+    if n_years != int(n_years):
+        raise ValueError("The number of layers is not a multiple of 6.")
+
+    monthly_summary = []
+
+    for month in range(6):
+        month_layers = []
+        for year in range(int(n_years)):
+            ras = files[month + year * 6]
+            month_layers.append(arcpy.Raster(ras))  # 使用arcpy读取栅格
+
+        # 计算统计值
+        if func == np.max:
+            result = arcpy.sa.CellStatistics(month_layers, "MAXIMUM", "DATA")
+        elif func == np.min:
+            result = arcpy.sa.CellStatistics(month_layers, "MINIMUM", "DATA")
+        elif func == np.mean:
+            result = arcpy.sa.CellStatistics(month_layers, "MEAN", "DATA")
+
+        monthly_summary.append(result)
+
+    return monthly_summary
+
+# 加载并处理最高温度1-6月数据
+tmax_files_jan_to_jun = load_and_order_rasters("tmax", range(0, 6))
+process_and_save(tmax_files_jan_to_jun, np.max, "tmax")
+
+# 加载并处理最高温度7-12月数据
+tmax_files_jul_to_dec = load_and_order_rasters("tmax", range(6, 12))
+process_and_save(tmax_files_jul_to_dec, np.max, "tmax_jul_to_dec")
+
+# 加载并处理最低温度1-6月数据
+tmin_files_jan_to_jun = load_and_order_rasters("tmin", range(0, 6))
+process_and_save(tmin_files_jan_to_jun, np.min, "tmin")
+
+# 加载并处理最低温度7-12月数据
+tmin_files_jul_to_dec = load_and_order_rasters("tmin", range(6, 12))
+process_and_save(tmin_files_jul_to_dec, np.min, "tmin_jul_to_dec")
+
+# 加载并处理降水1-6月数据
+prec_files_jan_to_jun = load_and_order_rasters("prec", range(0, 6))
+process_and_save(prec_files_jan_to_jun, np.mean, "prec")
+
+# 加载并处理降水7-12月数据
+prec_files_jul_to_dec = load_and_order_rasters("prec", range(6, 12))
+process_and_save(prec_files_jul_to_dec, np.mean, "prec_jul_to_dec")
+
+print("Processing complete. Results saved to:"， output_dir)
