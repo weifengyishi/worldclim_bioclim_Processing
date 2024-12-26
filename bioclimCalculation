@@ -1,0 +1,109 @@
+# 安装和加载必要的包（如果尚未安装，请取消注释以下行）
+# install.packages("raster")
+# install.packages("dismo")
+library(raster)
+library(dismo)
+
+# 设置文件路径
+base_path <- "F:/clim1019/avg12year10_19/"
+
+# 设置年份范围和月份
+year <- 2010
+months <- 1:12
+
+# 创建一个函数来生成文件名
+generate_filenames <- function(prefix, year, months) {
+  file_list <- list()
+  for (y in year) {
+    file_list[[as.character(y)]] <- sprintf("%s%s_%04d_19_%d.tif", base_path, prefix, y, months)
+  }
+  unlist(file_list)
+}
+
+# 生成文件路径
+prec_files <- generate_filenames("prec", year, months)
+tmin_files <- generate_filenames("tmin", year, months)
+tmax_files <- generate_filenames("tmax", year, months)
+
+# 打印文件路径以供检查
+cat("prec_files:\n")
+print(prec_files)
+cat("tmin_files:\n")
+print(tmin_files)
+cat("tmax_files:\n")
+print(tmax_files)
+
+# 检查文件是否存在
+missing_files <- c(prec_files, tmin_files, tmax_files)[!file.exists(c(prec_files, tmin_files, tmax_files))]
+if (length(missing_files) > 0) {
+  stop("某些输入文件不存在，请检查路径和文件名。\n缺失文件列表:\n", paste(missing_files, collapse = "\n"))
+}
+
+# 尝试逐个读取文件并创建 RasterBrick
+cat("Reading tmax data for year:", paste(year, collapse = ", "), "\n")
+tmax_brick <- tryCatch({
+  stack(tmax_files)
+}, error = function(e) {
+  message(sprintf("读取 tmax 文件时出错: %s", e$message))
+  NULL
+})
+
+cat("Reading tmin data for year:", paste(year, collapse = ", "), "\n")
+tmin_brick <- tryCatch({
+  stack(tmin_files)
+}, error = function(e) {
+  message(sprintf("读取 tmin 文件时出错: %s", e$message))
+  NULL
+})
+
+cat("Reading prec data for year:", paste(year, collapse = ", "), "\n")
+prec_brick <- tryCatch({
+  stack(prec_files)
+}, error = function(e) {
+  message(sprintf("读取 prec 文件时出错: %s", e$message))
+  NULL
+})
+
+# 检查读取的数据是否正确
+if (is.null(tmax_brick) || nlayers(tmax_brick) != length(year)*length(months)) {
+  stop("tmax_brick 数据读取失败或层数量不正确。")
+}
+if (is.null(tmin_brick) || nlayers(tmin_brick) != length(year)*length(months)) {
+  stop("tmin_brick 数据读取失败或层数量不正确。")
+}
+if (is.null(prec_brick) || nlayers(prec_brick) != length(year)*length(months)) {
+  stop("prec_brick 数据读取失败或层数量不正确。")
+}
+
+# 计算生物气候变量
+cat("Calculating bioclimatic variables for year:", paste(year, collapse = ", "), "\n")
+biovars_yearly <- tryCatch({
+  biovars(prec_brick, tmin_brick, tmax_brick)
+}, error = function(e) {
+  message(sprintf("计算生物气候变量时出错: %s", e$message))
+  NULL
+})
+
+# 检查生物气候变量是否被成功计算
+if (is.null(biovars_yearly)) {
+  stop("生物气候变量计算失败。")
+}
+
+# 显示生物气候变量的信息
+cat("Bioclimatic variables for year", paste(year, collapse = ", "), "have been calculated successfully.\n")
+print(biovars_yearly)
+
+# 可选：保存生物气候变量到文件
+output_dir <- "F:/clim1019/wc2.1_5m_bio201019"
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+
+# 保存所有的生物气候变量
+cat("Saving all bioclimatic variables for year", year, "\n")
+for (i in seq_along(names(biovars_yearly))) {
+  bio_var <- biovars_yearly[[i]]
+  filename <- file.path(output_dir, paste0(names(biovars_yearly)[i], "_", year, ".tif"))
+  writeRaster(bio_var, filename, format = "GTiff", overwrite = TRUE)
+  cat("  Saved", names(biovars_yearly)[i], "to", filename, "\n")
+}
+
+cat("All bioclimatic variables for year", paste(year, collapse = ", "), "have been processed and saved.\n")
